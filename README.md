@@ -1,4 +1,9 @@
+<div align="center">
+  <img src="readme-logo.jpg" width="120" alt="R7250Adj">
+
 # R7250Adj
+
+</div>
 
 A Windows CLI utility for tuning power and thermal limits on the AMD Ryzen 7 250 (Phoenix/Hawk Point) using the PawnIO kernel driver
 

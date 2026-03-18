@@ -5,7 +5,7 @@
 #   WSL / Linux             — uses x86_64-w64-mingw32-g++ cross-compiler
 #
 # Output:
-#   build/R7250Adj.exe          compiled binary
+#   build/R7250Adj.exe            compiled binary (with embedded icon)
 #   build/R7250Adj-<version>.zip  release archive (exe + RyzenSMU.bin)
 set -e
 
@@ -14,6 +14,9 @@ SOURCE="$SCRIPT_DIR/R7250Adj.cpp"
 BUILD_DIR="$SCRIPT_DIR/build"
 OUTPUT="$BUILD_DIR/R7250Adj.exe"
 BIN_FILE="$SCRIPT_DIR/RyzenSMU.bin"
+ICON_FILE="$SCRIPT_DIR/icon.ico"
+ICON_RC="$SCRIPT_DIR/icon.rc"
+ICON_OBJ="$SCRIPT_DIR/icon.o"
 
 # Extract version string from source so the zip name stays in sync
 VERSION=$(grep -m1 'R7250ADJ_VERSION' "$SOURCE" | grep -oP '"\K[^"]+')
@@ -49,6 +52,28 @@ detect_compiler() {
     return 1
 }
 
+detect_windres() {
+    if [ -n "$MSYSTEM" ] && [ "$MSYSTEM" = "MINGW64" ]; then
+        if command -v windres &>/dev/null; then
+            echo "windres"
+            return 0
+        fi
+        echo "ERROR: windres not found in MSYS2 MinGW64." >&2
+        echo "       Run: pacman -S mingw-w64-x86_64-binutils" >&2
+        return 1
+    fi
+
+    if command -v x86_64-w64-mingw32-windres &>/dev/null; then
+        echo "x86_64-w64-mingw32-windres"
+        return 0
+    fi
+
+    echo "ERROR: windres not found (needed for icon embedding)." >&2
+    echo "  On MSYS2 MinGW64:  pacman -S mingw-w64-x86_64-binutils" >&2
+    echo "  On WSL / Ubuntu:   sudo apt install mingw-w64" >&2
+    return 1
+}
+
 # ─── Preflight checks ─────────────────────────────────────────────────────────
 
 if [ ! -f "$SOURCE" ]; then
@@ -62,6 +87,11 @@ if [ ! -f "$BIN_FILE" ]; then
     exit 1
 fi
 
+if [ ! -f "$ICON_FILE" ]; then
+    echo "ERROR: Icon file not found: $ICON_FILE" >&2
+    exit 1
+fi
+
 if ! command -v zip &>/dev/null; then
     echo "ERROR: 'zip' not found." >&2
     echo "  On MSYS2:         pacman -S zip" >&2
@@ -70,14 +100,23 @@ if ! command -v zip &>/dev/null; then
 fi
 
 CXX=$(detect_compiler) || exit 1
+WINDRES=$(detect_windres) || exit 1
 
 mkdir -p "$BUILD_DIR"
 
 echo "Compiler : $CXX"
+echo "Windres  : $WINDRES"
 echo "Source   : $SOURCE"
 echo "Output   : $OUTPUT"
 echo "Release  : $RELEASE_ZIP"
 echo ""
+
+# ─── Compile icon resource ────────────────────────────────────────────────────
+# Use a filename-only path in the .rc file and run windres from SCRIPT_DIR so
+# windres resolves the icon relative to where it sits, avoiding path format issues.
+
+printf '1 ICON "icon.ico"\n' > "$ICON_RC"
+(cd "$SCRIPT_DIR" && "$WINDRES" "$ICON_RC" -O coff -o "$ICON_OBJ")
 
 # ─── Compile ──────────────────────────────────────────────────────────────────
 
@@ -86,8 +125,11 @@ echo ""
     -static \
     -o "$OUTPUT" \
     "$SOURCE" \
+    "$ICON_OBJ" \
     -lshlwapi \
     -Wl,--subsystem,console
+
+rm -f "$ICON_RC" "$ICON_OBJ"
 
 echo "Build complete: $OUTPUT"
 echo ""

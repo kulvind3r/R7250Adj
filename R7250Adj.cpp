@@ -109,6 +109,46 @@ static bool isRyzen7250() {
 }
 
 
+// ─── Service check ────────────────────────────────────────────────────────────
+
+static bool isPawnIORunning() {
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT);
+    if (scm == NULL) {
+        // SCM open failure likely means not running as Administrator
+        fprintf(stderr, "Error: Cannot connect to Service Control Manager. Run as Administrator.\n");
+        return false;
+    }
+
+    SC_HANDLE svc = OpenServiceA(scm, "PawnIO", SERVICE_QUERY_STATUS);
+    if (svc == NULL) {
+        DWORD err = GetLastError();
+        CloseServiceHandle(scm);
+        if (err == ERROR_SERVICE_DOES_NOT_EXIST)
+            fprintf(stderr, "Error: PawnIO driver is not installed. Download from https://pawnio.eu\n");
+        else
+            fprintf(stderr, "Error: Cannot query PawnIO service (error %lu).\n", err);
+        return false;
+    }
+
+    SERVICE_STATUS status = {0};
+    BOOL ok = QueryServiceStatus(svc, &status);
+    CloseServiceHandle(svc);
+    CloseServiceHandle(scm);
+
+    if (!ok) {
+        fprintf(stderr, "Error: Cannot query PawnIO service status (error %lu).\n", GetLastError());
+        return false;
+    }
+
+    if (status.dwCurrentState != SERVICE_RUNNING) {
+        fprintf(stderr, "Error: PawnIO driver is not running (state %lu). Start it with: sc start PawnIO\n",
+                status.dwCurrentState);
+        return false;
+    }
+
+    return true;
+}
+
 // ─── PawnIO Core ──────────────────────────────────────────────────────────────
 
 static bool pawnioExecute(const char* fn, LONG64* in, int inCount, LONG64* out, int outCount) {
@@ -150,6 +190,10 @@ static bool openDevice() {
         return false;
     }
 
+    // Confirm PawnIO service is installed and running before attempting device open
+    if (!isPawnIORunning())
+        return false;
+
     g_device = CreateFileA(DEVICE_PATH_NEW,
                            GENERIC_READ | GENERIC_WRITE,
                            FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -162,9 +206,8 @@ static bool openDevice() {
                                NULL, OPEN_EXISTING, 0, NULL);
 
     if (g_device == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "Error: Cannot open PawnIO device.\n"
-                        "       Is PawnIO installed and running? Run 'sc query PawnIO' to check.\n"
-                        "       Are you running as Administrator?\n");
+        fprintf(stderr, "Error: Cannot open PawnIO device (error %lu). Are you running as Administrator?\n",
+                GetLastError());
         return false;
     }
 
@@ -464,7 +507,18 @@ int main(int argc, char* argv[]) {
         return runInfo();
     }
 
-    // All write commands require a value argument
+    // Reject unknown commands before checking for a value argument so the error
+    // message is about the bad command name, not a missing value.
+    bool isKnownCommand = (strcmp(cmd, "--tctl-temp")   == 0 ||
+                           strcmp(cmd, "--stapm-limit") == 0 ||
+                           strcmp(cmd, "--fast-limit")  == 0 ||
+                           strcmp(cmd, "--slow-limit")  == 0);
+    if (!isKnownCommand) {
+        fprintf(stderr, "Error: Unknown command '%s'.\n\n", cmd);
+        printHelp();
+        return 1;
+    }
+
     if (argc < 3) {
         fprintf(stderr, "Error: %s requires a value. Use --help for usage.\n", cmd);
         return 1;
@@ -529,6 +583,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    fprintf(stderr, "Error: Unknown command '%s'. Use --help for usage.\n", cmd);
+    fprintf(stderr, "Error: Unknown command '%s'.\n\n", cmd);
+    printHelp();
     return 1;
 }

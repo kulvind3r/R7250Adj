@@ -15,12 +15,18 @@ BUILD_DIR="$SCRIPT_DIR/build"
 OUTPUT="$BUILD_DIR/R7250Adj.exe"
 BIN_FILE="$SCRIPT_DIR/RyzenSMU.bin"
 ICON_FILE="$SCRIPT_DIR/icon.ico"
-ICON_RC="$SCRIPT_DIR/icon.rc"
-ICON_OBJ="$SCRIPT_DIR/icon.o"
+RESOURCE_RC="$SCRIPT_DIR/resource.rc"
+RESOURCE_OBJ="$SCRIPT_DIR/resource.o"
 
-# Extract version string from source so the zip name stays in sync
+# Extract version string from source so the zip name and version resource stay in sync
 VERSION=$(grep -m1 'R7250ADJ_VERSION' "$SOURCE" | grep -oP '"\K[^"]+')
-RELEASE_ZIP="$BUILD_DIR/R7250Adj-${VERSION}.zip"
+RELEASE_ZIP="$BUILD_DIR/R7250Adj-v${VERSION}.zip"
+
+# Split version into components for the VERSIONINFO resource (requires numeric fields)
+IFS='.' read -r VER_MAJOR VER_MINOR VER_PATCH <<< "$VERSION"
+VER_MAJOR=${VER_MAJOR:-1}
+VER_MINOR=${VER_MINOR:-0}
+VER_PATCH=${VER_PATCH:-0}
 
 # ─── Environment detection ────────────────────────────────────────────────────
 
@@ -111,12 +117,45 @@ echo "Output   : $OUTPUT"
 echo "Release  : $RELEASE_ZIP"
 echo ""
 
-# ─── Compile icon resource ────────────────────────────────────────────────────
-# Use a filename-only path in the .rc file and run windres from SCRIPT_DIR so
-# windres resolves the icon relative to where it sits, avoiding path format issues.
+# ─── Compile resources (icon + version info) ─────────────────────────────────
+# Both are combined into one .rc so a single windres call handles both.
+# Run windres from SCRIPT_DIR so "icon.ico" resolves without path translation issues.
 
-printf '1 ICON "icon.ico"\n' > "$ICON_RC"
-(cd "$SCRIPT_DIR" && "$WINDRES" "$ICON_RC" -O coff -o "$ICON_OBJ")
+cat > "$RESOURCE_RC" << EOF
+#include <windows.h>
+
+1 ICON "icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    ${VER_MAJOR},${VER_MINOR},${VER_PATCH},0
+PRODUCTVERSION ${VER_MAJOR},${VER_MINOR},${VER_PATCH},0
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0x0L
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "kulvind3r"
+            VALUE "FileDescription",  "AMD Ryzen 7 250 power parameter tuning via PawnIO"
+            VALUE "FileVersion",      "${VERSION}"
+            VALUE "InternalName",     "R7250Adj"
+            VALUE "OriginalFilename", "R7250Adj.exe"
+            VALUE "ProductName",      "R7250Adj"
+            VALUE "ProductVersion",   "${VERSION}"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+EOF
+
+(cd "$SCRIPT_DIR" && "$WINDRES" "$RESOURCE_RC" -O coff -o "$RESOURCE_OBJ")
 
 # ─── Compile ──────────────────────────────────────────────────────────────────
 
@@ -125,11 +164,11 @@ printf '1 ICON "icon.ico"\n' > "$ICON_RC"
     -static \
     -o "$OUTPUT" \
     "$SOURCE" \
-    "$ICON_OBJ" \
+    "$RESOURCE_OBJ" \
     -lshlwapi \
     -Wl,--subsystem,console
 
-rm -f "$ICON_RC" "$ICON_OBJ"
+rm -f "$RESOURCE_RC" "$RESOURCE_OBJ"
 
 echo "Build complete: $OUTPUT"
 echo ""

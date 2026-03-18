@@ -2,9 +2,6 @@
  * R7250Adj v1.0
  * AMD Ryzen 7 250 (Phoenix/Hawk Point) power parameter tuning via PawnIO.
  *
- * Hardware constants are dual-source confirmed — see HAWKTUNE_PLAN.md
- * "Verified Constants" section for cross-references to RyzenAdj and UXTU Dev.
- *
  * Build: x86_64-w64-mingw32-g++ -O2 -static -o R7250Adj.exe R7250Adj.cpp -lshlwapi
  * Requires: PawnIO driver (https://pawnio.eu) + Administrator privileges.
  */
@@ -16,7 +13,7 @@
 #include <stdint.h>
 #include <cpuid.h>
 
-#define R7250ADJ_VERSION "1.0"
+#define R7250ADJ_VERSION "2026.03.18"
 
 // CPUID brand string gate — runs before any driver interaction
 static const char* REQUIRED_CPU_BRAND = "Ryzen 7 250";
